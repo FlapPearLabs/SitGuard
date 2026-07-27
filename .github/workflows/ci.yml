@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check sitguard scripts
+      - run: mypy sitguard
+
+  test:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - name: Download YuNet model
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile models/face_detection_yunet_2023mar.onnx -UseBasicParsing
+      - run: pytest --cov=sitguard --cov-report=term-missing
+
+  build:
+    needs: [lint, test]
+    runs-on: windows-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[build]"
+      - name: Download YuNet model
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile models/face_detection_yunet_2023mar.onnx -UseBasicParsing
+      - name: Install UPX
+        run: choco install upx -y
+      - run: python scripts/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SitGuard-${{ github.sha }}
+          path: dist/SitGuard.exe

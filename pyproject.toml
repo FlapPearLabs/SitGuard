@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sitguard"
+version = "0.1.0"
+description = "Open-source webcam-based sedentary reminder for Windows. Sits in the tray, watches you, reminds you to move."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "SitGuard Contributors" }]
+keywords = ["health", "posture", "sitting", "reminder", "webcam", "opencv"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Home Automation",
+    "Topic :: Multimedia :: Video :: Capture",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python-headless>=4.10,<6.0",
+    "PySide6>=6.6",
+    "pywin32>=306; sys_platform == 'win32'",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "pyinstaller>=6.3",
+    "tomli-w>=1.0",
+]
+build = [
+    "pyinstaller>=6.3",
+]
+
+[project.scripts]
+sitguard = "sitguard.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/<you>/sitguard"
+Issues = "https://github.com/<you>/sitguard/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sitguard*"]
+exclude = ["sitguard.tests*"]
+
+[tool.setuptools.package-data]
+sitguard = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["sitguard/tests"]
+addopts = "-v --tb=short"
