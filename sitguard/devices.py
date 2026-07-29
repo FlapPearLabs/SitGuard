@@ -29,6 +29,59 @@ IS_WINDOWS = sys.platform == "win32"
 _CAMERA_CLASS_GUID = "{ca3e7ab9-b4c3-4ae6-8251-579ef933890f}"
 
 
+# --- Capture backend selection (the fix for the black-screen bug) ----------
+#
+# On Windows, OpenCV's default capture backend is Media Foundation (CAP_MSMF).
+# MSMF is notorious for OPENING successfully but returning all-zero (black)
+# frames for a large class of UVC webcams — exactly the "camera opens but the
+# screen is black" symptom. The far more compatible backend for UVC cameras
+# is DirectShow (CAP_DSHOW). So we always try DSHOW first and only fall back to
+# MSMF / auto if DSHOW cannot open the device.
+#
+# This was the root cause of SitGuard rendering a black preview on machines
+# that otherwise work fine in other camera apps: open_camera used
+# `cv2.VideoCapture(index)` with no backend flag, so OpenCV silently picked
+# the broken MSMF path.
+
+
+def _backend_order() -> list[tuple[str, int | None]]:
+    """Preferred capture backends, most-compatible first.
+
+    Returns a list of (name, flag) where flag is the cv2 backend constant or
+    None for the auto/default path.
+    """
+    import cv2
+
+    order: list[tuple[str, int | None]] = []
+    dshow = getattr(cv2, "CAP_DSHOW", None)
+    if dshow is not None:
+        order.append(("DirectShow", dshow))
+    msmf = getattr(cv2, "CAP_MSMF", None)
+    if msmf is not None:
+        order.append(("MediaFoundation", msmf))
+    order.append(("Auto", None))
+    return order
+
+
+def _try_open_camera(index: int, backend_flag: int | None):
+    """Open a camera with one specific backend. Returns the capture or None."""
+    import cv2
+
+    try:
+        cap = (
+            cv2.VideoCapture(index, backend_flag)
+            if backend_flag is not None
+            else cv2.VideoCapture(index)
+        )
+    except Exception:  # noqa: BLE001 - any failure means "this backend can't open it"
+        return None
+    if not cap.isOpened():
+        cap.release()
+        return None
+    return cap
+
+
+
 @dataclass
 class CameraDevice:
     """A discovered video capture device."""
@@ -144,12 +197,16 @@ def _probe_opencv_indices(max_index: int = 5) -> list[int]:
     try:
         for i in range(max_index + 1):
             with contextlib.redirect_stderr(devnull):
-                cap = cv2.VideoCapture(i)
-                opened = cap.isOpened()
+                cap = None
+                for _name, flag in _backend_order():
+                    cap = _try_open_camera(i, flag)
+                    if cap is not None:
+                        break
+                opened = cap is not None
                 grabbed = False
                 if opened:
                     grabbed, _ = cap.read()
-                cap.release()
+                    cap.release()
             if opened and grabbed:
                 ok_indices.append(i)
     finally:
@@ -160,13 +217,56 @@ def _probe_opencv_indices(max_index: int = 5) -> list[int]:
 def _probe_resolution(index: int) -> tuple[int, int] | None:
     import cv2
 
-    cap = cv2.VideoCapture(index)
-    if not cap.isOpened():
+    cap = _try_open_camera(index, getattr(cv2, "CAP_DSHOW", None))
+    if cap is None:
         return None
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
     return (w, h) if w and h else None
+
+
+def open_capture(index: int = 0, warmup_frames: int = 5):
+    """Open the camera with the most-compatible backend and verify it streams.
+
+    Tries backends in order (DirectShow -> Media Foundation -> auto), reads a
+    few warm-up frames, and returns the capture only if it yields at least one
+    non-black frame. This avoids the classic OpenCV-on-Windows black-screen bug
+    where the default MSMF backend opens successfully but returns all-zero
+    frames for many UVC webcams.
+
+    Returns the opened ``cv2.VideoCapture`` (caller must release it) or ``None``
+    if no backend can produce a usable frame.
+    """
+    import cv2
+    import numpy as np
+
+    for _name, flag in _backend_order():
+        cap = _try_open_camera(index, flag)
+        if cap is None:
+            continue
+        # Warm up: some cameras emit black frames for the first few reads.
+        good = False
+        for _ in range(warmup_frames):
+            ok, frame = cap.read()
+            if ok and frame is not None and float(np.mean(frame)) > 1.0:
+                good = True
+                break
+        if good:
+            return cap
+        cap.release()
+    return None
+
+
+def open_camera(index: int = 0, **kwargs):
+    """Convenience wrapper around :func:`open_capture` with a stable name.
+
+    The detection / UI layer should call THIS instead of constructing
+    ``cv2.VideoCapture`` directly, so the backend fallback always applies and
+    the black-screen bug cannot return.
+    """
+    return open_capture(index, **kwargs)
+
 
 
 # --- Privacy setting detection ---------------------------------------------
@@ -329,4 +429,6 @@ __all__ = [
     "check_privacy_allowed",
     "save_device_list",
     "load_device_list",
+    "open_capture",
+    "open_camera",
 ]

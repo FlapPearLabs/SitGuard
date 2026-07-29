@@ -57,3 +57,19 @@ sessions/
 
 # OS
 desktop.ini
+
+# === Recovery baseline exceptions (2026-07: source-loss incident) ===
+# recovered .pyc bytecode in sitguard/ is the ONLY source snapshot — MUST be tracked
+!sitguard/**/*.pyc
+# YuNet model must be tracked (needed by both old exe patching and Rust rewrite)
+!models/face_detection_yunet_2023mar.onnx
+
+# Local-only binaries
+originals/
+*.exe
+
+# Rust / Tauri (sitguard-rs)
+sitguard-rs/target/
+sitguard-rs/node_modules/
+sitguard-rs/dist/
+node_modules/
