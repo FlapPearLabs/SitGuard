@@ -12,10 +12,10 @@ from PyInstaller.archive.writers import ZlibArchiveWriter
 from PyInstaller.compat import BYTECODE_MAGIC
 from PyInstaller.building.utils import get_code_object, strip_paths_in_code
 
-SRC_EXE = r'D:\$RECYCLE.BIN\S-1-5-21-1985212650-2938159715-2845943150-1001\$RVX4UAR\SitGuard.exe'
+SRC_EXE = r'D:\未完成项目\SitGuard\originals\SitGuard_original.exe'
 FIXED_DEVICES_PY = r'D:\未完成项目\SitGuard\sitguard\devices.py'
 FIXED_INIT_PY = r'D:\未完成项目\SitGuard\scripts\exe_patch\__init___patched.py'
-OUT_EXE = r'D:\未完成项目\SitGuard\dist\SitGuard_patched.exe'
+OUT_EXE = r'D:\未完成项目\SitGuard\dist\SitGuard_v4.exe'
 WORK_DIR = r'D:\未完成项目\SitGuard\scripts\exe_patch'
 
 PYZ_NAME = 'PYZ-00.pyz'
