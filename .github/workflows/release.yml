@@ -4,10 +4,10 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
 permissions:
   contents: write
@@ -16,13 +16,10 @@ jobs:
   build-exe:
     name: Build portable exe (Windows MSVC)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: sitguard-rs
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (stable, MSVC)
+      - name: Install Rust (pinned, MSVC)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.97.1"
@@ -35,29 +32,71 @@ jobs:
           cache: npm
           cache-dependency-path: sitguard-rs/package-lock.json
 
+      # Tauri layout: the Cargo manifest is in sitguard-rs/src-tauri/,
+      # so the build dir is src-tauri/target.
       - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            sitguard-rs/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
+            sitguard-rs/src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Install frontend deps
+        working-directory: sitguard-rs
         run: npm ci
 
       # bundle.targets is [] so this produces only the portable exe
       # (no MSI/NSIS installer download — avoids the GitHub-blocked WiX fetch).
       - name: Build portable exe
+        working-directory: sitguard-rs
         run: npm run tauri build
 
-      - name: Upload exe as release asset
+      - name: Verify build artifacts exist
+        shell: bash
+        run: |
+          set -e
+          exe="sitguard-rs/src-tauri/target/release/sitguard-rs.exe"
+          model="sitguard-rs/src-tauri/models/movenet_lightning.onnx"
+          for f in "$exe" "$model"; do
+            if [ ! -f "$f" ]; then echo "MISSING: $f"; exit 1; fi
+            echo "OK $f ($(stat -c%s "$f") bytes)"
+          done
+
+      # Ship exe + MoveNet together: YuNet is embedded in the exe via
+      # include_bytes!, but MoveNet is loaded at runtime from ./models/
+      # next to the exe. Without it the app still runs, just with no skeleton.
+      - name: Stage portable package
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist-portable/models
+          cp sitguard-rs/src-tauri/target/release/sitguard-rs.exe dist-portable/SitGuard.exe
+          cp sitguard-rs/src-tauri/models/movenet_lightning.onnx dist-portable/models/
+          cd dist-portable
+          7z a -tzip ../SitGuard-portable-${{ github.ref_name }}.zip . >/dev/null
+          cd ..
+          ls -la SitGuard-portable-${{ github.ref_name }}.zip
+
+      - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            SitGuard-portable-${{ github.ref_name }}.zip
             sitguard-rs/src-tauri/target/release/sitguard-rs.exe
-            sitguard-rs/src-tauri/models/movenet_lightning.onnx
-            sitguard-rs/src-tauri/models/face_detection_yunet_2023mar_320.onnx
+          body: |
+            SitGuard ${{ github.ref_name }} — 便携版（Rust/Tauri 重写）
+
+            **推荐下载 `SitGuard-portable-${{ github.ref_name }}.zip`**，
+            解压后双击 `SitGuard.exe` 即可运行。
+
+            压缩包内含 `models/movenet_lightning.onnx`（全身骨架模型，运行时加载）。
+            单独下载 `sitguard-rs.exe` 也能运行，但**不会有骨架叠加**
+            （YuNet 人脸模型已编译进 exe，MoveNet 需放在 exe 同级 `models/` 下）。
+
+            环境要求：Windows 10/11 x64 + WebView2 运行时 + 可用摄像头。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

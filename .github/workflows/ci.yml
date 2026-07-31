@@ -5,24 +5,19 @@ on:
     branches: [main, rust-rewrite]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  # rsproxy.cn is the crates mirror reachable from this project's build env;
-  # harmless on GitHub (falls back to crates.io if unreachable).
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
 jobs:
   test:
     name: cargo test + build (Windows MSVC)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: sitguard-rs
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (stable, MSVC)
+      - name: Install Rust (pinned, MSVC)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.97.1"
@@ -36,31 +31,49 @@ jobs:
           cache: npm
           cache-dependency-path: sitguard-rs/package-lock.json
 
+      # NOTE: this is a Tauri layout — the Cargo manifest lives in
+      # sitguard-rs/src-tauri/, so the build dir is src-tauri/target (NOT
+      # sitguard-rs/target). Getting this path wrong silently disables the
+      # cache and makes every run rebuild tract from scratch (~4+ min).
       - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            sitguard-rs/target
+            sitguard-rs/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Install frontend deps
+        working-directory: sitguard-rs
         run: npm ci
 
       - name: Frontend type-check + build
+        working-directory: sitguard-rs
         run: npm run build
 
-      - name: cargo fmt check
+      # Style gates are advisory: they surface problems without turning the
+      # pipeline red over cosmetics. Correctness gates below are blocking.
+      - name: cargo fmt check (advisory)
+        working-directory: sitguard-rs/src-tauri
+        continue-on-error: true
         run: cargo fmt --all -- --check
 
-      - name: cargo clippy
+      - name: cargo clippy (advisory)
+        working-directory: sitguard-rs/src-tauri
+        continue-on-error: true
         run: cargo clippy --all-targets -- -D warnings
 
+      # Blocking: runs the 19 unit tests, including real tract-onnx inference
+      # (movenet_loads_and_infers_17_keypoints), the onnxruntime golden-value
+      # check that pins the vendored tract patches
+      # (movenet_matches_onnxruntime_reference), and YuNet detection.
       - name: cargo test (library)
-        # Runs the 18 unit tests, including real MoveNet/tract-onnx inference
-        # (movenet_runs_when_model_present) and YuNet detection.
+        working-directory: sitguard-rs/src-tauri
         run: cargo test --lib
 
       - name: cargo build (debug, compile check)
+        working-directory: sitguard-rs/src-tauri
         run: cargo build

@@ -154,24 +154,43 @@ impl PoseDetector {
     }
 }
 
-/// Resolve a model file by checking a few candidate locations relative to the
-/// running executable: next to the exe, in a `models/` subdir, and (for `tauri
-/// dev`) three levels up at `src-tauri/models/`. Returns None if not found.
+/// Resolve a model file by checking candidate locations, in priority order:
+///   1. next to the exe (shipped portable layout)
+///   2. `models/` next to the exe (bundled resources layout)
+///   3. three levels up at `src-tauri/models/` (`tauri dev`: target/debug/exe)
+///   4. the crate's own `models/` via CARGO_MANIFEST_DIR
+///
+/// Candidate 4 exists because candidates 1-3 all miss under `cargo test`: the
+/// test binary lives one level deeper (target/debug/deps/), which makes the
+/// relative walk in candidate 3 resolve to `src-tauri/src-tauri/models/`.
+/// Without it the MoveNet test silently skipped and reported a false pass.
+/// CARGO_MANIFEST_DIR is baked in at compile time, so for a shipped exe it
+/// points at a build path that no longer exists — harmless, since every
+/// candidate is existence-checked.
 pub fn find_model(name: &str) -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let exe_dir = exe.parent()?;
-    let candidates = [
-        exe_dir.join(name),
-        exe_dir.join("models").join(name),
-        exe_dir
-            .join("..")
-            .join("..")
-            .join("..")
-            .join("src-tauri")
-            .join("models")
-            .join(name),
-    ];
-    candidates.into_iter().find(|p| p.exists())
+    let manifest_models = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join(name);
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let candidates = [
+                exe_dir.join(name),
+                exe_dir.join("models").join(name),
+                exe_dir
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join("src-tauri")
+                    .join("models")
+                    .join(name),
+                manifest_models.clone(),
+            ];
+            return candidates.into_iter().find(|p| p.exists());
+        }
+    }
+
+    manifest_models.exists().then_some(manifest_models)
 }
 
 #[cfg(test)]
@@ -184,23 +203,109 @@ mod tests {
         assert!(PoseDetector::try_new(p, 1280, 720).is_err());
     }
 
-    /// Runs only when the model file is present (it is optional / not always
-    /// checked in). Verifies the model loads, runs, and yields 17 keypoints.
+    /// End-to-end MoveNet check: the model is committed to the repo, so this
+    /// must hard-fail rather than skip. An earlier version returned early when
+    /// the model was not found, which made the test pass without running any
+    /// inference at all (a false green in CI).
     #[test]
-    fn movenet_runs_when_model_present() {
-        let Some(path) = find_model("movenet_lightning.onnx") else {
-            eprintln!("skip: movenet_lightning.onnx not found");
-            return;
-        };
-        let det = match PoseDetector::try_new(&path, 640, 480) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("skip: model failed to load: {e}");
-                return;
-            }
-        };
+    fn movenet_loads_and_infers_17_keypoints() {
+        let path = find_model("movenet_lightning.onnx").expect(
+            "movenet_lightning.onnx must be resolvable — it is committed under \
+             src-tauri/models/. If this fails, find_model's candidate paths are \
+             wrong for the current build layout.",
+        );
+        let det = PoseDetector::try_new(&path, 640, 480)
+            .expect("MoveNet model must load via tract-onnx");
         let blank = RgbImage::new(640, 480);
         let pose = det.detect(&blank).expect("inference should run");
         assert_eq!(pose.keypoints.len(), NUM_KEYPOINTS);
+
+        // Coordinates must be mapped back into frame pixel space, not left as
+        // the model's normalised 0..1 output.
+        for kp in &pose.keypoints {
+            assert!(
+                kp[0] >= -1.0 && kp[0] <= 641.0,
+                "x out of frame range: {}",
+                kp[0]
+            );
+            assert!(
+                kp[1] >= -1.0 && kp[1] <= 481.0,
+                "y out of frame range: {}",
+                kp[1]
+            );
+            assert!(
+                kp[2] >= 0.0 && kp[2] <= 1.0,
+                "score not a probability: {}",
+                kp[2]
+            );
+        }
+    }
+
+    /// Numerical regression test against ONNX Runtime.
+    ///
+    /// tract 0.21.17 needed three local patches before MoveNet produced the
+    /// right numbers (see `vendor/` and the `[patch.crates-io]` block in
+    /// Cargo.toml). Two of them were silent: the model still loaded and still
+    /// returned a correctly-shaped `[1,1,17,3]` tensor, but the values were
+    /// wrong, so nothing short of comparing against a reference runtime could
+    /// catch it. These expectations were produced by onnxruntime 1.x on the
+    /// exact same input and pin that behaviour down.
+    ///
+    /// The frame is deliberately 192x192 so the pre-resize is the identity and
+    /// tract sees byte-for-byte the tensor ORT was given.
+    #[test]
+    fn movenet_matches_onnxruntime_reference() {
+        // ORT reference for input pixel (x, y, c) = (x*3 + y*5 + c*7) % 256,
+        // as (y_norm, x_norm, score).
+        const REF: [[f32; 3]; NUM_KEYPOINTS] = [
+            [0.026041, 0.438785, 0.036977],
+            [0.029832, 0.479036, 0.017419],
+            [0.035259, 0.372011, 0.018954],
+            [0.020303, 0.552235, 0.015315],
+            [0.035263, 0.352457, 0.014147],
+            [0.140714, 0.637687, 0.028879],
+            [0.143770, 0.336519, 0.015608],
+            [0.474040, 0.554813, 0.066268],
+            [0.476009, 0.275067, 0.027204],
+            [0.554401, 0.417411, 0.079596],
+            [0.644042, 0.268581, 0.067682],
+            [0.671733, 0.674539, 0.104292],
+            [0.675350, 0.441578, 0.114022],
+            [0.967952, 0.624858, 0.054924],
+            [0.894670, 0.291335, 0.054344],
+            [0.989118, 0.593188, 0.095599],
+            [0.917624, 0.282131, 0.042064],
+        ];
+        // Loose enough for f32 accumulation-order differences between runtimes
+        // (observed: <1e-5), tight enough to fail on the half_pixel
+        // extrapolation bug, which moved keypoints by up to 0.02 and scores by
+        // up to 0.028.
+        const TOL: f32 = 0.01;
+
+        let side = POSE_SIZE as u32;
+        let path = find_model("movenet_lightning.onnx").expect("model must be resolvable");
+        let det = PoseDetector::try_new(&path, side, side).expect("MoveNet must load");
+        let frame = RgbImage::from_fn(side, side, |x, y| {
+            image::Rgb([
+                ((x * 3 + y * 5) % 256) as u8,
+                ((x * 3 + y * 5 + 7) % 256) as u8,
+                ((x * 3 + y * 5 + 14) % 256) as u8,
+            ])
+        });
+
+        let pose = det.detect(&frame).expect("inference should run");
+        for (i, (kp, want)) in pose.keypoints.iter().zip(REF.iter()).enumerate() {
+            // detect() returns [x_px, y_px, score]; REF is [y_norm, x_norm, score].
+            let got = [kp[1] / side as f32, kp[0] / side as f32, kp[2]];
+            for (c, label) in ["y", "x", "score"].iter().enumerate() {
+                assert!(
+                    (got[c] - want[c]).abs() < TOL,
+                    "kp{i} {label}: tract {} vs onnxruntime {} (delta {:.6})",
+                    got[c],
+                    want[c],
+                    (got[c] - want[c]).abs()
+                );
+            }
+        }
     }
 }

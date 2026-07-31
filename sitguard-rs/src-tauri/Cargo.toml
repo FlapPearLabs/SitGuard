@@ -32,6 +32,22 @@ base64 = "0.22"
 # required because this machine can only reach rsproxy.cn crates mirror)
 tract-onnx = "0.21"
 
+# Three upstream tract bugs block MoveNet; all are patched in vendor/ and wired
+# in below. Each patched file starts with a comment block describing the bug,
+# how it manifests and what the fix is.
+#
+#   vendor/tract-hir  — GatherND shape inference underflows (`indices_rank - n`
+#                       on usize), which makes the rule solver push rules until
+#                       the process aborts on a ~2 GiB allocation while loading
+#                       the model. Still broken in 0.23.4.
+#   vendor/tract-onnx — Resize ignores an empty `scales` input and returns the
+#                       tensor unresized; and half_pixel extrapolates off the
+#                       left/top edge instead of clamping, corrupting the border
+#                       of every upsampled feature map.
+[patch.crates-io]
+tract-hir = { path = "vendor/tract-hir" }
+tract-onnx = { path = "vendor/tract-onnx" }
+
 [profile.release]
 lto = true
 codegen-units = 1
