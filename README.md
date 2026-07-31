@@ -26,6 +26,15 @@ npm run tauri build    # 产出便携 exe（target/release/sitguard-rs.exe）
 > 模型文件：`src-tauri/models/`（YuNet 内嵌，MoveNet 运行时加载）。
 > 摄像头后端坑（MSMF 黑屏）已在 `nokhwa` 采集层用暖帧 + 黑帧校验规避。
 
+## CI 与发布
+
+- **CI**（`.github/workflows/ci.yml`）：每次 push/PR 到 `main` 自动跑 `cargo fmt`/`clippy`、`cargo test --lib`（18 个单测，含 MoveNet/YuNet 真实推理）、前端类型检查 + 构建。
+- **Release**（`.github/workflows/release.yml`）：打 `v*` 标签自动构建便携 exe，并把 exe + ONNX 模型作为 Release 资产上传（用 `bundle.targets: []` 跳过 GitHub 被墙的 WiX 安装包下载）。
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0   # 触发 Release 构建
+```
+
 ## 2. `recovered_reference/` — Python 原版参考实现
 
 从丢失的源码中恢复的**可读参考**（仅算法对照用，不可直接运行）：
