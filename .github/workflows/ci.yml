@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, rust-rewrite]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # rsproxy.cn is the crates mirror reachable from this project's build env;
+  # harmless on GitHub (falls back to crates.io if unreachable).
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  test:
+    name: cargo test + build (Windows MSVC)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: sitguard-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable, MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.1"
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sitguard-rs/package-lock.json
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sitguard-rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Frontend type-check + build
+        run: npm run build
+
+      - name: cargo fmt check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (library)
+        # Runs the 18 unit tests, including real MoveNet/tract-onnx inference
+        # (movenet_runs_when_model_present) and YuNet detection.
+        run: cargo test --lib
+
+      - name: cargo build (debug, compile check)
+        run: cargo build

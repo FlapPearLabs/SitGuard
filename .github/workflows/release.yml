@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+permissions:
+  contents: write
+
+jobs:
+  build-exe:
+    name: Build portable exe (Windows MSVC)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: sitguard-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable, MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.1"
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sitguard-rs/package-lock.json
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sitguard-rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
+
+      - name: Install frontend deps
+        run: npm ci
+
+      # bundle.targets is [] so this produces only the portable exe
+      # (no MSI/NSIS installer download — avoids the GitHub-blocked WiX fetch).
+      - name: Build portable exe
+        run: npm run tauri build
+
+      - name: Upload exe as release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sitguard-rs/src-tauri/target/release/sitguard-rs.exe
+            sitguard-rs/src-tauri/models/movenet_lightning.onnx
+            sitguard-rs/src-tauri/models/face_detection_yunet_2023mar_320.onnx
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
