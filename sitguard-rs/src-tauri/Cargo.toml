@@ -1,0 +1,38 @@
+[package]
+name = "sitguard-rs"
+version = "0.1.0"
+description = "SitGuard - sitting posture guardian (Rust rewrite)"
+authors = ["SitGuard"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "sitguard_rs_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+# System notifications for break / posture reminders.
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+nokhwa = { version = "0.10", features = ["input-native"] }
+log = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+base64 = "0.22"
+# Pure-Rust ONNX inference (no onnxruntime.dll, no CDN binary download —
+# required because this machine can only reach rsproxy.cn crates mirror)
+tract-onnx = "0.21"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

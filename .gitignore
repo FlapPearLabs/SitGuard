@@ -1,0 +1,34 @@
+# Build artifacts & local data (cross-platform)
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Rust / Tauri
+sitguard-rs/target/
+sitguard-rs/src-tauri/target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Logs
+*.log
+logs/
+
+# OS / editor
+.idea/
+.vscode/
+
+# Local-only binaries & runtime data (never commit)
+*.exe
+originals/
+user_data/
+stats/
+sessions/
