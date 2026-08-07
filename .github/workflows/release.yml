@@ -67,8 +67,9 @@ jobs:
           done
 
       # Ship exe + MoveNet together: YuNet is embedded in the exe via
-      # include_bytes!, but MoveNet is loaded at runtime from ./models/
-      # next to the exe. Without it the app still runs, just with no skeleton.
+      # include_bytes!, but MoveNet is loaded at runtime from ./models/ next to
+      # the exe. Without it the app still runs, but posture scoring degrades to
+      # the face-geometry branch only — no skeleton overlay, no torso angles.
       - name: Stage portable package
         shell: bash
         run: |
@@ -94,8 +95,12 @@ jobs:
             解压后双击 `SitGuard.exe` 即可运行。
 
             压缩包内含 `models/movenet_lightning.onnx`（全身骨架模型，运行时加载）。
-            单独下载 `sitguard-rs.exe` 也能运行，但**不会有骨架叠加**
-            （YuNet 人脸模型已编译进 exe，MoveNet 需放在 exe 同级 `models/` 下）。
+            单独下载 `sitguard-rs.exe` 也能运行，但会**退化为纯人脸几何判定**：
+            没有骨架叠加，也没有躯干角度分析（YuNet 人脸模型已编译进 exe，
+            MoveNet 需放在 exe 同级 `models/` 下）。
+
+            首次使用请在界面上**手动标定一次基线**：坐正后点「重新标定」。
+            坐姿判定是相对你自己的基线，若一开始就驼着背，基线会记住那个姿势。
 
             环境要求：Windows 10/11 x64 + WebView2 运行时 + 可用摄像头。
         env:

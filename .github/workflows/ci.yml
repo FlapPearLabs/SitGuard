@@ -66,10 +66,12 @@ jobs:
         continue-on-error: true
         run: cargo clippy --all-targets -- -D warnings
 
-      # Blocking: runs the 19 unit tests, including real tract-onnx inference
+      # Blocking: runs the 26 unit tests, including real tract-onnx inference
       # (movenet_loads_and_infers_17_keypoints), the onnxruntime golden-value
       # check that pins the vendored tract patches
-      # (movenet_matches_onnxruntime_reference), and YuNet detection.
+      # (movenet_matches_onnxruntime_reference), YuNet detection, and the
+      # skeleton-angle / label-hysteresis coverage added with the posture
+      # scoring rework.
       - name: cargo test (library)
         working-directory: sitguard-rs/src-tauri
         run: cargo test --lib
