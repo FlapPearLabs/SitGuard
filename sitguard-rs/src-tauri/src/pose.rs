@@ -154,15 +154,23 @@ impl PoseDetector {
     }
 }
 
-/// Resolve a model file by checking candidate locations, in priority order:
-///   1. next to the exe (shipped portable layout)
-///   2. `models/` next to the exe (bundled resources layout)
-///   3. three levels up at `src-tauri/models/` (`tauri dev`: target/debug/exe)
-///   4. the crate's own `models/` via CARGO_MANIFEST_DIR
+/// Resolve a model file by checking candidate locations, in priority order.
+/// Covers every layout the binary can be launched from:
+///   1. `<exe_dir>/<name>`                       — portable, model next to exe
+///   2. `<exe_dir>/models/<name>`                — portable, model in a models/ dir
+///   3. `<exe_dir>/resources/models/<name>`      — Tauri *installed* bundle on
+///                                                  Windows / Linux (Tauri copies
+///                                                  `bundle.resources` into a
+///                                                  `resources/` dir next to the exe)
+///   4. `<exe_dir>/../Resources/models/<name>`   — Tauri *installed* bundle on macOS
+///                                                  (Resources live one level up from
+///                                                  the MacOS/ exe dir)
+///   5. `<exe_dir>/../../../src-tauri/models/<name>` — `tauri dev` / local debug build
+///   6. `<CARGO_MANIFEST_DIR>/models/<name>`     — `cargo test` / build-path fallback
 ///
-/// Candidate 4 exists because candidates 1-3 all miss under `cargo test`: the
+/// Candidate 6 exists because candidates 1-5 all miss under `cargo test`: the
 /// test binary lives one level deeper (target/debug/deps/), which makes the
-/// relative walk in candidate 3 resolve to `src-tauri/src-tauri/models/`.
+/// relative walk in candidate 5 resolve to `src-tauri/src-tauri/models/`.
 /// Without it the MoveNet test silently skipped and reported a false pass.
 /// CARGO_MANIFEST_DIR is baked in at compile time, so for a shipped exe it
 /// points at a build path that no longer exists — harmless, since every
@@ -175,8 +183,19 @@ pub fn find_model(name: &str) -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
             let candidates = [
+                // 1. portable: model next to the exe
                 exe_dir.join(name),
+                // 2. portable: model under a models/ dir next to the exe
                 exe_dir.join("models").join(name),
+                // 3. Tauri installed bundle (Windows / Linux)
+                exe_dir.join("resources").join("models").join(name),
+                // 4. Tauri installed bundle (macOS)
+                exe_dir
+                    .join("..")
+                    .join("Resources")
+                    .join("models")
+                    .join(name),
+                // 5. tauri dev / local debug build
                 exe_dir
                     .join("..")
                     .join("..")
@@ -184,6 +203,7 @@ pub fn find_model(name: &str) -> Option<PathBuf> {
                     .join("src-tauri")
                     .join("models")
                     .join(name),
+                // 6. cargo test / build-path fallback
                 manifest_models.clone(),
             ];
             return candidates.into_iter().find(|p| p.exists());

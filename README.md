@@ -61,10 +61,10 @@ golden 值锁住这三处修复，防止升级 tract 时静默回归。
 ## CI 与发布
 
 - **CI**（`.github/workflows/ci.yml`）：每次 push/PR 到 `main` 自动跑 `cargo fmt`/`clippy`、`cargo test --lib`（26 个单测，含 MoveNet/YuNet 真实推理与 ORT 数值对齐、骨架角度与标签 hysteresis）、前端类型检查 + 构建。
-- **Release**（`.github/workflows/release.yml`）：打 `v*` 标签自动构建便携 exe，并把 exe + ONNX 模型作为 Release 资产上传（用 `bundle.targets: []` 跳过 GitHub 被墙的 WiX 安装包下载）。
+- **Release**（`.github/workflows/release.yml`）：打 `v*` 标签自动构建**三平台**安装包并上传 Release 资产——Windows `.msi`、Linux `.AppImage`、macOS `.dmg`（未签名，首次启动需右键 → 打开绕过 Gatekeeper）。MoveNet / YuNet 模型经 `bundle.resources` 打进安装包，无需额外下载。
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0   # 触发 Release 构建
+git tag v0.2.1 && git push origin v0.2.1   # 触发三平台 Release 构建
 ```
 
 ## 2. `recovered_reference/` — Python 原版参考实现
@@ -84,7 +84,7 @@ git tag v0.2.0 && git push origin v0.2.0   # 触发 Release 构建
 
 ## 分支说明
 
-- `main` — 最新 Rust 重写（含 M1–M5）。
+- `main` — 最新 Rust 重写（含 M1–M6）。
 - `master` / `v4-speedup` / `recovery-baseline` / `opencv-5-upgrade` — 历史阶段分支。
 
 ## 许可证

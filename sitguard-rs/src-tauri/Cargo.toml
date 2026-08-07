@@ -1,6 +1,6 @@
 [package]
 name = "sitguard-rs"
-version = "0.1.0"
+version = "0.2.1"
 description = "SitGuard - sitting posture guardian (Rust rewrite)"
 authors = ["SitGuard"]
 edition = "2021"

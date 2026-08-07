@@ -13,17 +13,34 @@ permissions:
   contents: write
 
 jobs:
-  build-exe:
-    name: Build portable exe (Windows MSVC)
-    runs-on: windows-latest
+  release:
+    name: Build ${{ matrix.targets }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            targets: appimage
+          - os: windows-latest
+            targets: msi
+          - os: macos-latest
+            targets: dmg
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (pinned, MSVC)
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget \
+            file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            libv4l-dev libfuse2 patchelf
+
+      - name: Install Rust (pinned)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.97.1"
-          targets: x86_64-pc-windows-msvc
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -32,8 +49,8 @@ jobs:
           cache: npm
           cache-dependency-path: sitguard-rs/package-lock.json
 
-      # Tauri layout: the Cargo manifest is in sitguard-rs/src-tauri/,
-      # so the build dir is src-tauri/target.
+      # Tauri layout: the Cargo manifest lives in sitguard-rs/src-tauri/, so the
+      # build dir is src-tauri/target (NOT sitguard-rs/target).
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -41,7 +58,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             sitguard-rs/src-tauri/target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('sitguard-rs/src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
@@ -49,59 +66,29 @@ jobs:
         working-directory: sitguard-rs
         run: npm ci
 
-      # bundle.targets is [] so this produces only the portable exe
-      # (no MSI/NSIS installer download — avoids the GitHub-blocked WiX fetch).
-      - name: Build portable exe
-        working-directory: sitguard-rs
-        run: npm run tauri build
-
-      - name: Verify build artifacts exist
-        shell: bash
-        run: |
-          set -e
-          exe="sitguard-rs/src-tauri/target/release/sitguard-rs.exe"
-          model="sitguard-rs/src-tauri/models/movenet_lightning.onnx"
-          for f in "$exe" "$model"; do
-            if [ ! -f "$f" ]; then echo "MISSING: $f"; exit 1; fi
-            echo "OK $f ($(stat -c%s "$f") bytes)"
-          done
-
-      # Ship exe + MoveNet together: YuNet is embedded in the exe via
-      # include_bytes!, but MoveNet is loaded at runtime from ./models/ next to
-      # the exe. Without it the app still runs, but posture scoring degrades to
-      # the face-geometry branch only — no skeleton overlay, no torso angles.
-      - name: Stage portable package
-        shell: bash
-        run: |
-          set -e
-          mkdir -p dist-portable/models
-          cp sitguard-rs/src-tauri/target/release/sitguard-rs.exe dist-portable/SitGuard.exe
-          cp sitguard-rs/src-tauri/models/movenet_lightning.onnx dist-portable/models/
-          cd dist-portable
-          7z a -tzip ../SitGuard-portable-${{ github.ref_name }}.zip . >/dev/null
-          cd ..
-          ls -la SitGuard-portable-${{ github.ref_name }}.zip
-
-      - name: Publish release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            SitGuard-portable-${{ github.ref_name }}.zip
-            sitguard-rs/src-tauri/target/release/sitguard-rs.exe
-          body: |
-            SitGuard ${{ github.ref_name }} — 便携版（Rust/Tauri 重写）
-
-            **推荐下载 `SitGuard-portable-${{ github.ref_name }}.zip`**，
-            解压后双击 `SitGuard.exe` 即可运行。
-
-            压缩包内含 `models/movenet_lightning.onnx`（全身骨架模型，运行时加载）。
-            单独下载 `sitguard-rs.exe` 也能运行，但会**退化为纯人脸几何判定**：
-            没有骨架叠加，也没有躯干角度分析（YuNet 人脸模型已编译进 exe，
-            MoveNet 需放在 exe 同级 `models/` 下）。
-
-            首次使用请在界面上**手动标定一次基线**：坐正后点「重新标定」。
-            坐姿判定是相对你自己的基线，若一开始就驼着背，基线会记住那个姿势。
-
-            环境要求：Windows 10/11 x64 + WebView2 运行时 + 可用摄像头。
+      # Builds the platform bundle and publishes it to the GitHub Release for
+      # this tag. macOS runs WITHOUT Apple signing/notarization secrets, so the
+      # .dmg/.app are unsigned (Gatekeeper will block first launch; users
+      # right-click -> Open to bypass).
+      - name: Build & publish (Tauri)
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: sitguard-rs
+          tagName: 'v__VERSION__'
+          releaseName: 'SitGuard v__VERSION__'
+          releaseBody: |
+            SitGuard v__VERSION__ — 三平台发布
+
+            | 平台 | 资产 | 说明 |
+            |------|------|------|
+            | Windows 10/11 | `SitGuard_<version>_x64_en-US.msi` | 安装程序，双击安装 |
+            | Linux (glibc) | `SitGuard_<version>_amd64.AppImage` | `chmod +x` 后运行，免 root |
+            | macOS 11+ (Apple Silicon) | `SitGuard.app.tar.gz` / `.dmg` | **未签名**，首次启动右键 → 打开绕过 Gatekeeper |
+
+            MoveNet 与 YuNet 模型均已打包进安装包（`resources/models/`），无需额外下载、零联网。
+            首次使用请坐正后在界面上点「重新标定」设定基线——坐姿判定相对你自己的直立姿势。
+          releaseDraft: false
+          prerelease: false
+          args: --targets ${{ matrix.targets }}
