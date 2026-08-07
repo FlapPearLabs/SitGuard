@@ -57,6 +57,12 @@ interface PostureInfo {
   posture_score: number;
   baseline_calibrated: boolean;
   focused_since: number;
+  // Full-body skeleton diagnostics (smoothed). 0 when body model absent.
+  body_present: boolean;
+  shoulder_tilt_deg: number;
+  spine_lateral_deg: number;
+  head_drop_ratio: number;
+  torso_compress_ratio: number;
 }
 
 interface Settings {
@@ -103,6 +109,12 @@ const presence = ref<PresenceState>("not_present");
 const postureState = ref<PostureState>("unknown");
 const postureScore = ref<number>(0);
 const baselineCalibrated = ref<boolean>(false);
+
+// Smoothed skeleton-angle metrics coming from the posture backend.
+const shoulderTilt = ref<number>(0);
+const spineLateral = ref<number>(0);
+const headDrop = ref<number>(0);
+const torsoCompress = ref<number>(0);
 
 const presenceLabel: Record<PresenceState, string> = {
   not_present: "不在位",
@@ -278,7 +290,11 @@ async function startPreview() {
     postureState.value = ev.payload.posture.posture;
     postureScore.value = ev.payload.posture.posture_score;
     baselineCalibrated.value = ev.payload.posture.baseline_calibrated;
-    bodyPresent.value = ev.payload.body != null;
+    bodyPresent.value = ev.payload.posture.body_present;
+    shoulderTilt.value = ev.payload.posture.shoulder_tilt_deg;
+    spineLateral.value = ev.payload.posture.spine_lateral_deg;
+    headDrop.value = ev.payload.posture.head_drop_ratio;
+    torsoCompress.value = ev.payload.posture.torso_compress_ratio;
     drawFrame(ev.payload);
     frameCount++;
   });
@@ -419,6 +435,13 @@ onUnmounted(() => {
         <div class="pill" :class="baselineCalibrated ? 'ok' : 'warn'">
           <span class="k">基线</span>{{ baselineCalibrated ? "已标定" : "标定中…" }}
         </div>
+        <div v-if="bodyPresent" class="skeleton-metrics">
+          <div class="metric"><span class="k">脊柱侧倾</span>{{ spineLateral.toFixed(0) }}°</div>
+          <div class="metric"><span class="k">肩线倾斜</span>{{ shoulderTilt.toFixed(0) }}°</div>
+          <div class="metric"><span class="k">头下沉</span>{{ headDrop.toFixed(2) }}</div>
+          <div class="metric"><span class="k">躯干压缩</span>{{ torsoCompress.toFixed(2) }}</div>
+        </div>
+        <p v-else class="hint">骨架模型未加载，姿态判定仅基于人脸几何（降级模式）。</p>
         <button class="ghost" @click="recalibrate">重新标定</button>
         <button class="ghost" @click="pauseReminders">暂缓提醒 10 分钟</button>
       </div>
@@ -648,6 +671,26 @@ button:disabled {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.skeleton-metrics {
+  margin-top: 8px;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+}
+.skeleton-metrics .metric {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.skeleton-metrics .metric .k {
+  color: #94a3b8;
 }
 .pill {
   display: inline-flex;

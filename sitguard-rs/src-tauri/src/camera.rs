@@ -293,13 +293,18 @@ pub fn capture_loop(
             });
         let posture_info = tracker
             .lock()
-            .map(|mut t| t.process(obs.as_ref()))
+            .map(|mut t| t.process(obs.as_ref(), body.as_ref()))
             .unwrap_or(PostureInfo {
                 presence: crate::posture::PresenceState::NotPresent,
                 posture: crate::posture::PostureState::Unknown,
                 posture_score: 0.0,
                 baseline_calibrated: false,
                 focused_since: 0.0,
+                body_present: false,
+                shoulder_tilt_deg: 0.0,
+                spine_lateral_deg: 0.0,
+                head_drop_ratio: 0.0,
+                torso_compress_ratio: 0.0,
             });
 
         // Sitting-session timing + reminders (M4). Tick the session with the

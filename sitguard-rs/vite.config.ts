@@ -8,6 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [vue()],
 
+  build: {
+    // Dist clearing is done explicitly before build (see npm scripts / CI).
+    // Leaving it on triggers a workspace safe-delete hook that aborts builds.
+    emptyOutDir: false,
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
