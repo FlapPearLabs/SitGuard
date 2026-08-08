@@ -14,17 +14,17 @@ permissions:
 
 jobs:
   release:
-    name: Build ${{ matrix.targets }} (${{ matrix.os }})
+    name: Build ${{ matrix.bundles }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            targets: appimage
+            bundles: appimage
           - os: windows-latest
-            targets: msi
+            bundles: msi
           - os: macos-latest
-            targets: dmg
+            bundles: dmg
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -91,4 +91,4 @@ jobs:
             首次使用请坐正后在界面上点「重新标定」设定基线——坐姿判定相对你自己的直立姿势。
           releaseDraft: false
           prerelease: false
-          args: --targets ${{ matrix.targets }}
+          args: --bundles ${{ matrix.bundles }}
